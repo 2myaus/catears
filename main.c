@@ -25,7 +25,7 @@ struct dev_info{
     char hostname[16]; //Only store first 16 characters of hostname
 };
 
-struct dev_info loggedips[1024];
+struct dev_info loggedips[2048];
 u_int loggedipsidx = 0;
 
 /* Ethernet header */
@@ -118,37 +118,72 @@ void interruptHandler(int dummy) {
     pcap_close(handle);
 }
 
-void logip(u_char *ipbytes, u_char *macbytes, char *hostname){
+void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len){
+    u_char n;
+    for(n = 0; n < 4; n++){
+        loggedips[index].ipv4[n] = ipbytes[n];
+    }
+    u_char did_update_value = 0;    
+    if(macbytes != NULL){
+        for(n = 0; n < 6; n++){
+            if(loggedips[index].mac[n] != macbytes[n]){
+                loggedips[index].mac[n] = macbytes[n];
+                did_update_value = 1;
+            }
+        }
+    }
+    if(hostname != NULL){
+        for(n = 0; n < 15 && n < hostname_len; n++){
+            if(loggedips[index].hostname[n] != hostname[n]){            
+                loggedips[index].hostname[n] = hostname[n];
+                did_update_value = 1;
+            }
+        }
+        loggedips[loggedipsidx].hostname[n] = '\0';
+    }
+    if(did_update_value){
+        printf("Update ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
+        if(macbytes != NULL){
+            printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
+        }
+        if(hostname != NULL){
+            printf("hostname %s ", hostname);
+        }
+        printf("\n");
+    }
+}
+
+void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len){
     for(u_int i = 0; i < loggedipsidx; i++){
         u_char n;
-        for(n = 0; n < 6; n++){
-            if(loggedips[i].mac[n] != macbytes[n]){
+        for(n = 0; n < 4; n++){
+            if(loggedips[i].ipv4[n] != ipbytes[n]){
                 goto out;
             }
         }
-        if(n == 6){
-            return;
-        }
+        updateip(i, ipbytes, macbytes, hostname, hostname_len);
+        return;
         out:;
     }
     u_char n;
-    for(n = 0; n < 6; n++){
-        loggedips[loggedipsidx].mac[n] = macbytes[n];
-    }
     for(n = 0; n < 4; n++){
         loggedips[loggedipsidx].ipv4[n] = ipbytes[n];
     }
     printf("Logged ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
     if(macbytes != NULL){
+        for(n = 0; n < 6; n++){
+            loggedips[loggedipsidx].mac[n] = macbytes[n];
+        }
         printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
     }
     if(hostname != NULL){
-        for(n = 0; n < 8; n++){
+        for(n = 0; n < 15 && n < hostname_len; n++){
             loggedips[loggedipsidx].hostname[n] = hostname[n];
         }
-        printf("hostname %c%c%c%c%c%c%c%c ", hostname[0], hostname[1], hostname[2], hostname[3], hostname[4], hostname[5], hostname[6], hostname[7]);
+        loggedips[loggedipsidx].hostname[n] = '\0';
+        printf("hostname %s", hostname, n);
     }
-    printf("\n");
+    printf("(logged %d)\n", loggedipsidx);
     loggedipsidx++;
 }
 
@@ -182,8 +217,9 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 
     u_char *ipv4_bytes;
     u_char *mac_bytes;
-    char hostname_bytes_mem[8] = {};
+    char hostname_bytes_mem[16] = {};
     char *hostname_bytes_ptr = NULL;
+    u_short hostname_len;
 
     while(current_option != 0xff){ //END option
         current_option_len = *(options_read_idx + 1);
@@ -194,20 +230,24 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
                 ipv4_bytes = options_read_idx + 2;
                 mac_bytes = (dhcphead->hardware_addr);
                 break;
-            case 12:
+            case 12:{
                 //printf("Host name: ");
-                for(int i = 2; i < current_option_len + 2; i++){
+                u_char i;
+                for(i = 2; i < current_option_len + 2 && i < 15; i++){
                     hostname_bytes_mem[i-2] = *(options_read_idx + i);
                 }
+                hostname_bytes_mem[i-2] = '\0';
                 hostname_bytes_ptr = hostname_bytes_mem;
+                hostname_len = current_option_len;
                 //printf("\n");
                 break;
+            }
         }
         options_read_idx += current_option_len + 2;
         current_option = *(options_read_idx);
     }
     if(loggable){
-        logip(ipv4_bytes, mac_bytes, hostname_bytes_ptr);
+        logip(ipv4_bytes, mac_bytes, hostname_bytes_ptr, hostname_len);
     }
     //printf("\n");
 }
@@ -225,7 +265,7 @@ void handle_mdns_packet(u_char  *args, const struct pcap_pkthdr *header, const u
     struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
     //We could parse mdns or we could just
-    logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL);
+    logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL, 0);
 }
 
 void handle_udp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
@@ -305,8 +345,8 @@ void handle_arp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_
         printf("I am %02X:%02X:%02X:%02X:%02X:%02X\n",
         arphead->sender_mac[0], arphead->sender_mac[1], arphead->sender_mac[2], arphead->sender_mac[3], arphead->sender_mac[4], arphead->sender_mac[5]);
     }*/
-    logip((u_char*)&(arphead->target_resolv_ipv4), (u_char*)&(arphead->target_resolv_mac), NULL);
-    logip((u_char*)&(arphead->sender_ipv4), (u_char*)&(arphead->sender_mac), NULL);
+    logip((u_char*)&(arphead->target_resolv_ipv4), NULL, NULL, 0);
+    logip((u_char*)&(arphead->sender_ipv4), (u_char*)&(arphead->sender_mac), NULL, 0);
 
     /*printf("Query MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
     arphead->target_resolv_mac[0], arphead->target_resolv_mac[1], arphead->target_resolv_mac[2], arphead->target_resolv_mac[3], arphead->target_resolv_mac[4], arphead->target_resolv_mac[5]);*/
