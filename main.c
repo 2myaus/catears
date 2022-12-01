@@ -8,6 +8,11 @@
 #include <time.h>
 #include <sys/socket.h>
 
+#define MAX_HOSTNAME_LEN 32
+
+u_char only_display_with_mac = 0;
+u_char only_display_with_hostname = 0;
+
 char interrupted = 0;
 pcap_t *handle;
 
@@ -22,7 +27,7 @@ u_char router_mac[6];
 struct dev_info{
     u_char mac[6];
     u_char ipv4[4];
-    char hostname[16]; //Only store first 16 characters of hostname
+    char hostname[MAX_HOSTNAME_LEN]; //Only store first MAX_HOSTNAME_LEN characters of hostname
 };
 
 struct dev_info loggedips[2048];
@@ -123,8 +128,12 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
     for(n = 0; n < 4; n++){
         loggedips[index].ipv4[n] = ipbytes[n];
     }
-    u_char did_update_value = 0;    
+    u_char did_update_value = 0;
+    u_char had_mac = 0;
+    u_char had_hostname = 0;
+
     if(macbytes != NULL){
+        had_mac = 1;
         for(n = 0; n < 6; n++){
             if(loggedips[index].mac[n] != macbytes[n]){
                 loggedips[index].mac[n] = macbytes[n];
@@ -133,7 +142,8 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         }
     }
     if(hostname != NULL){
-        for(n = 0; n < 15 && n < hostname_len; n++){
+        had_hostname = 1;
+        for(n = 0; n < MAX_HOSTNAME_LEN - 1 && n < hostname_len; n++){
             if(loggedips[index].hostname[n] != hostname[n]){            
                 loggedips[index].hostname[n] = hostname[n];
                 did_update_value = 1;
@@ -142,11 +152,17 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         loggedips[loggedipsidx].hostname[n] = '\0';
     }
     if(did_update_value){
+        if(only_display_with_hostname && !had_hostname){
+            return;
+        }
+        if(only_display_with_mac && !had_mac){
+            return;
+        }
         printf("Update ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
-        if(macbytes != NULL){
+        if(had_mac){
             printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
         }
-        if(hostname != NULL){
+        if(had_hostname){
             printf("hostname %s ", hostname);
         }
         printf("\n");
@@ -169,22 +185,36 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     for(n = 0; n < 4; n++){
         loggedips[loggedipsidx].ipv4[n] = ipbytes[n];
     }
-    printf("Logged ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
+    u_char had_mac = 0;
+    u_char had_hostname = 0;
     if(macbytes != NULL){
+        had_mac = 1;
         for(n = 0; n < 6; n++){
             loggedips[loggedipsidx].mac[n] = macbytes[n];
         }
-        printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
     }
     if(hostname != NULL){
-        for(n = 0; n < 15 && n < hostname_len; n++){
+        had_hostname = 1;
+        for(n = 0; n < MAX_HOSTNAME_LEN - 1 && n < hostname_len; n++){
             loggedips[loggedipsidx].hostname[n] = hostname[n];
         }
         loggedips[loggedipsidx].hostname[n] = '\0';
-        printf("hostname %s", hostname, n);
+    }
+    loggedipsidx++;
+    if((only_display_with_hostname && !had_hostname)){
+        return;
+    }
+    if((only_display_with_mac && !had_mac)){
+        return;
+    }
+    printf("Logged ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
+    if(had_mac){
+        printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
+    }
+    if(had_hostname){
+        printf("hostname %s ", hostname);        
     }
     printf("(logged %d)\n", loggedipsidx);
-    loggedipsidx++;
 }
 
 void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
@@ -217,7 +247,7 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 
     u_char *ipv4_bytes;
     u_char *mac_bytes;
-    char hostname_bytes_mem[16] = {};
+    char hostname_bytes_mem[MAX_HOSTNAME_LEN] = {};
     char *hostname_bytes_ptr = NULL;
     u_short hostname_len;
 
@@ -233,7 +263,7 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
             case 12:{
                 //printf("Host name: ");
                 u_char i;
-                for(i = 2; i < current_option_len + 2 && i < 15; i++){
+                for(i = 2; i < current_option_len + 2 && i < MAX_HOSTNAME_LEN - 1; i++){
                     hostname_bytes_mem[i-2] = *(options_read_idx + i);
                 }
                 hostname_bytes_mem[i-2] = '\0';
@@ -373,8 +403,31 @@ void cap_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *p
     }
 }
 
+void print_help_list(){
+    printf("Help message here TODO\n");
+}
+
 int main(int argc, char *argv[])
 {
+    for(u_short i = 1; i < argc; i++){
+        if(argv[i][0] != '-'){
+            goto end_of_arg;
+        }
+        switch(argv[i][1]){
+            case('\0'):
+                goto end_of_arg;
+            case('h'):
+                print_help_list();
+                return 0;
+            case('n'):
+                only_display_with_hostname = 1;
+                goto end_of_arg;
+            case('m'):
+                only_display_with_mac = 1;
+                goto end_of_arg;
+        }
+        end_of_arg:;
+    }
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_if_t *devs = malloc(10 * sizeof(pcap_if_t));
 
