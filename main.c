@@ -50,7 +50,8 @@ struct ipv4_header {
     u_char ip_ttl;                 /* time to live */
     u_char ip_p;                   /* protocol */
     u_short ip_sum;              /* checksum */
-    struct in_addr ip_src, ip_dst; /* source and dest address */
+    u_char ip_src[4];
+    u_char ip_dst[4]; /* source and dest address */
 };
 
 /* TCP header */
@@ -217,6 +218,19 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     printf("(logged %d)\n", loggedipsidx);
 }
 
+void handle_generic_ipv4_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
+    struct timeval *tv = (struct timeval*)header;
+    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
+    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
+
+    struct eth_header *ethhead = (struct eth_header*)packet;
+    u_short packet_type = be16toh(ethhead->ether_type);
+
+    struct ipv4_header *ipv4head = (struct ipv4_header*)(packet+ sizeof(struct eth_header));
+
+    logip((u_char*)&(ipv4head->ip_src), NULL, NULL, 0);
+}
+
 void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
     struct timeval *tv = (struct timeval*)header;
     bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
@@ -236,6 +250,8 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 
     u_char *dhcp_options = (u_char*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header) + sizeof(struct udp_header) + sizeof(struct dhcp_header));
 
+    u_int options_size = (u_int)(header->len) - sizeof(struct eth_header) - sizeof(struct ipv4_header) - sizeof(struct udp_header) - sizeof(struct dhcp_header);
+
     u_char *options_read_idx = dhcp_options ;
     u_char current_option_len;
 
@@ -252,7 +268,15 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
     u_short hostname_len;
 
     while(current_option != 0xff){ //END option
+        if((u_int)(options_read_idx - dhcp_options) >= options_size - 1){ //Won't trigger for END packet
+            //Malformed packet
+            return;
+        }
         current_option_len = *(options_read_idx + 1);
+        if((u_int)(options_read_idx + current_option_len - dhcp_options) >= options_size){ //Won't trigger for END packet
+            //Malformed packet
+            return;
+        }
         switch(current_option){
             case 50:
                 //printf("Requested IP: %d.%d.%d.%d\n", *(options_read_idx + 2), *(options_read_idx + 3), *(options_read_idx + 4), *(options_read_idx + 5));
@@ -263,7 +287,7 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
             case 12:{
                 //printf("Host name: ");
                 u_char i;
-                for(i = 2; i < current_option_len + 2 && i < MAX_HOSTNAME_LEN - 1; i++){
+                for(i = 2; i < current_option_len + 2 && i < MAX_HOSTNAME_LEN - 1; i++){ //Already limited by option len check so won't segfault
                     hostname_bytes_mem[i-2] = *(options_read_idx + i);
                 }
                 hostname_bytes_mem[i-2] = '\0';
@@ -283,9 +307,6 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 }
 
 void handle_mdns_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
 
     struct eth_header *ethhead = (struct eth_header*)packet;
     u_short packet_type = be16toh(ethhead->ether_type);
@@ -294,14 +315,16 @@ void handle_mdns_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 
     struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
-    //We could parse mdns or we could just
+    //TODO: Properly parse mdns here
     logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL, 0);
 }
 
 void handle_udp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
+
+    if((u_int)(header->len) < 26){
+        //Malformed packet
+        return;
+    }
 
     struct eth_header *ethhead = (struct eth_header*)packet;
     u_short packet_type = be16toh(ethhead->ether_type);
@@ -322,26 +345,32 @@ void handle_udp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_
 }
 
 void handle_ipv4_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
+
+    if((u_int)(header->len) < 18){
+        //Malformed packet
+        return;
+    }
 
     struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
 
     struct ipv4_header *ipv4head = (struct ipv4_header*)(packet+ sizeof(struct eth_header));
-    
+
     switch (ipv4head->ip_p) {
         case(17): //UDP
             handle_udp_packet(args, header, packet);                
+            return;
+        default:
+            handle_generic_ipv4_packet(args, header, packet);
             return;
     }
 }
 
 void handle_arp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
+
+    if((u_int)(header->len) < 42){
+        //Malformed packet
+        return;
+    }
 
     struct eth_header *ethhead = (struct eth_header*)packet;
     u_short packet_type = be16toh(ethhead->ether_type);
