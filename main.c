@@ -83,7 +83,7 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         if(had_hostname){
             printf("hostname %s ", hostname);
         }
-        printf("confidence %d/2 ", confidence);
+        printf("confidence %d/2 ", loggedips[index].ipv4_confidence);
         printf("\n");
     }
 }
@@ -385,6 +385,9 @@ int main(int argc, char *argv[])
                 goto end_of_arg;
             case('c'):
                 min_confidence = atoi(argv[i]+2);
+                if(min_confidence > MAX_CONFIDENCE){
+                    printf("Warning: min confidence argument is greater than normal max confidence\n");
+                }
                 goto end_of_arg;
         }
         end_of_arg:;

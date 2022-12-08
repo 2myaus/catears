@@ -2,6 +2,8 @@
 
 #define MAX_HOSTNAME_LEN 32
 
+#define MAX_CONFIDENCE 2 //Highest possible confidence value
+
 /*
     Confidence values:
     0 - thru dhcp request
