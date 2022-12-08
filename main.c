@@ -7,14 +7,15 @@
 #include <endian.h>
 #include <time.h>
 #include <sys/socket.h>
+#include "netstructs.h"
 
-#define MAX_HOSTNAME_LEN 32
+//#define MAX_HOSTNAME_LEN 32 /* now defined in netstructs */
 
 u_char only_display_with_mac = 0;
 u_char only_display_with_hostname = 0;
 
 char interrupted = 0;
-pcap_t *handle;
+pcap_t *pcap_handle;
 
 u_char local_mac[6];
 
@@ -23,108 +24,15 @@ u_char target_ipv4[4];
 u_char router_ipv4[4];
 u_char router_mac[6];
 
-/*Logged device */
-struct dev_info{
-    u_char mac[6];
-    u_char ipv4[4];
-    char hostname[MAX_HOSTNAME_LEN]; //Only store first MAX_HOSTNAME_LEN characters of hostname
-};
-
 struct dev_info loggedips[2048];
 u_int loggedipsidx = 0;
 
-/* Ethernet header */
-struct eth_header {    
-    u_char ether_dhost[6]; /* Destination host address */
-    u_char ether_shost[6]; /* Source host address */
-    u_short ether_type;               /* IP? ARP? RARP? etc */
-};
-
-/* IP header */
-struct ipv4_header {
-    u_char ip_vhl; /* version << 4 | header length >> 2 */
-    u_char ip_tos; /* type of service */
-    u_short ip_len;              /* total length */
-    u_short ip_id;               /* identification */
-    u_short ip_off;              /* fragment offset field */
-    u_char ip_ttl;                 /* time to live */
-    u_char ip_p;                   /* protocol */
-    u_short ip_sum;              /* checksum */
-    u_char ip_src[4];
-    u_char ip_dst[4]; /* source and dest address */
-};
-
-/* TCP header */
-struct tcp_header {
-    u_short port_src;
-    u_short port_dest;
-    uint sq_num;
-    uint ack_num;
-    u_short flags;
-    u_short window;
-    u_short checksum;
-    u_short urg_pointer;
-    u_char tcp_options[12]; // tcp options are not actually 12 individual bytes, this is just a placeholder
-};
-
-/* ARP header */
-struct arp_header {
-    u_short hardware_type;
-    u_short protocol_type; // 0x0800 is ipv4
-    u_char hardware_size;
-    u_char protocol_size;
-    u_short opcode;
-    u_char sender_mac[6];
-    u_char sender_ipv4[4];
-    u_char target_resolv_mac[6];
-    u_char target_resolv_ipv4[4];
-};
-
-/* UDP header */
-struct udp_header {
-    u_short src_port;
-    u_short dst_port;
-    u_short len;
-    u_short checksum;
-};
-
-/* DHCP header */
-struct dhcp_header {
-    u_char opcode;
-    u_char htype;
-    u_char hlen;
-    u_char hops;
-    u_int xid; //Transaction id
-    u_short secs; //Seconds since client tried to lease
-    u_short flags;
-    u_int client_addr; //Only if client already has a valid ip
-    u_int assign_addr; //Address that the server is assigning to the client
-    u_int next_serv_addr; //Address to use in next step, may or may not be same ip
-    u_int gateway_addr;
-    u_char hardware_addr[6]; //Client hardware (mac) address
-    u_char haddr_padding[10];
-    u_char serv_name[64]; //Server name OR dhcp options
-    u_char file[128]; //Boot filename, optional to request certain boot file type
-    //Ends with variable length OPTIONS structure
-};
-
-/* MDNS header */
-struct mdns_header {
-    u_short xid;
-    u_short flags;
-    u_short questions;
-    u_short answer_rrs;
-    u_short authority_rrs;
-    u_short additional_rrs;
-    //TODO: Finish struct
-};
-
 void interruptHandler(int dummy) {
     interrupted = 1;
-    pcap_close(handle);
+    pcap_close(pcap_handle);
 }
 
-void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len){
+void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len, u_char confidence){
     u_char n;
     for(n = 0; n < 4; n++){
         loggedips[index].ipv4[n] = ipbytes[n];
@@ -132,6 +40,10 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
     u_char did_update_value = 0;
     u_char had_mac = 0;
     u_char had_hostname = 0;
+
+    if(confidence > loggedips[index].ipv4_confidence){
+        loggedips[index].ipv4_confidence = confidence;
+    }
 
     if(macbytes != NULL){
         had_mac = 1;
@@ -166,11 +78,12 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         if(had_hostname){
             printf("hostname %s ", hostname);
         }
+        printf("confidence %d/3 ", confidence);
         printf("\n");
     }
 }
 
-void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len){
+void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_len, enum confidence_val confidence){
     for(u_int i = 0; i < loggedipsidx; i++){
         u_char n;
         for(n = 0; n < 4; n++){
@@ -178,7 +91,7 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
                 goto out;
             }
         }
-        updateip(i, ipbytes, macbytes, hostname, hostname_len);
+        updateip(i, ipbytes, macbytes, hostname, hostname_len, confidence);
         return;
         out:;
     }
@@ -186,6 +99,7 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     for(n = 0; n < 4; n++){
         loggedips[loggedipsidx].ipv4[n] = ipbytes[n];
     }
+    loggedips[loggedipsidx].ipv4_confidence = confidence;
     u_char had_mac = 0;
     u_char had_hostname = 0;
     if(macbytes != NULL){
@@ -215,6 +129,7 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     if(had_hostname){
         printf("hostname %s ", hostname);        
     }
+    printf("confidence %d/3 ", confidence);
     printf("(logged %d)\n", loggedipsidx);
 }
 
@@ -228,7 +143,7 @@ void handle_generic_ipv4_packet(u_char *args, const struct pcap_pkthdr *header, 
 
     struct ipv4_header *ipv4head = (struct ipv4_header*)(packet+ sizeof(struct eth_header));
 
-    logip((u_char*)&(ipv4head->ip_src), NULL, NULL, 0);
+    logip((u_char*)&(ipv4head->ip_src), NULL, NULL, 0, cfv_packet_sender);
 }
 
 void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
@@ -301,7 +216,7 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
         current_option = *(options_read_idx);
     }
     if(loggable){
-        logip(ipv4_bytes, mac_bytes, hostname_bytes_ptr, hostname_len);
+        logip(ipv4_bytes, mac_bytes, hostname_bytes_ptr, hostname_len, cfv_dhcp_requester);
     }
     //printf("\n");
 }
@@ -316,7 +231,7 @@ void handle_mdns_packet(u_char  *args, const struct pcap_pkthdr *header, const u
     struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
     //TODO: Properly parse mdns here
-    logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL, 0);
+    logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL, 0, cfv_packet_sender);
 }
 
 void handle_udp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
@@ -404,8 +319,8 @@ void handle_arp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_
         printf("I am %02X:%02X:%02X:%02X:%02X:%02X\n",
         arphead->sender_mac[0], arphead->sender_mac[1], arphead->sender_mac[2], arphead->sender_mac[3], arphead->sender_mac[4], arphead->sender_mac[5]);
     }*/
-    logip((u_char*)&(arphead->target_resolv_ipv4), NULL, NULL, 0);
-    logip((u_char*)&(arphead->sender_ipv4), (u_char*)&(arphead->sender_mac), NULL, 0);
+    logip((u_char*)&(arphead->target_resolv_ipv4), NULL, NULL, 0, cfv_arp_queried);
+    logip((u_char*)&(arphead->sender_ipv4), (u_char*)&(arphead->sender_mac), NULL, 0, cfv_packet_sender);
 
     /*printf("Query MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
     arphead->target_resolv_mac[0], arphead->target_resolv_mac[1], arphead->target_resolv_mac[2], arphead->target_resolv_mac[3], arphead->target_resolv_mac[4], arphead->target_resolv_mac[5]);*/
@@ -433,7 +348,12 @@ void cap_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *p
 }
 
 void print_help_list(){
-    printf("Help message here TODO\n");
+    char *helpmsg = "\nCATEARS usage:\n"
+    "-h : Show this help message\n"
+    "-m : Only display hosts with known MAC addresses\n"
+    "-n : Only display hosts with known hostnames\n"
+    "\n";
+    printf("%s", helpmsg);
 }
 
 int main(int argc, char *argv[])
@@ -482,30 +402,30 @@ int main(int argc, char *argv[])
         mask = 0;
     }
     
-    handle = pcap_open_live(dev.name, BUFSIZ, 1, 1000, errbuf);
+    pcap_handle = pcap_open_live(dev.name, BUFSIZ, 1, 1000, errbuf);
 
-    if (handle == NULL) {
+    if (pcap_handle == NULL) {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev.name, errbuf);
         return(2);
     }
-    if(pcap_datalink(handle) != DLT_EN10MB){
+    if(pcap_datalink(pcap_handle) != DLT_EN10MB){
         fprintf(stderr, "Not ethernet, quitting!");
         return(2);
     }
     
     signal(SIGINT, interruptHandler);
 
-    if (pcap_compile(handle, &fp, filter_exp, 0, net) == -1) {
-        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(handle));
+    if (pcap_compile(pcap_handle, &fp, filter_exp, 0, net) == -1) {
+        fprintf(stderr, "Couldn't parse filter %s: %s\n", filter_exp, pcap_geterr(pcap_handle));
         return(2);
     }
-    if (pcap_setfilter(handle, &fp) == -1) {
-        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(handle));
+    if (pcap_setfilter(pcap_handle, &fp) == -1) {
+        fprintf(stderr, "Couldn't install filter %s: %s\n", filter_exp, pcap_geterr(pcap_handle));
         return(2);
     }
 
     printf("Success, starting sniffing\n\n");
-    pcap_loop(handle, -1, cap_packet, NULL);
+    pcap_loop(pcap_handle, -1, cap_packet, NULL);
     printf("Sniffing ended\n");
 
     return(0);
