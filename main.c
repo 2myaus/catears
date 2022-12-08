@@ -27,6 +27,8 @@ u_char router_mac[6];
 struct dev_info loggedips[2048];
 u_int loggedipsidx = 0;
 
+u_char min_confidence = 0;
+
 void interruptHandler(int dummy) {
     interrupted = 1;
     pcap_close(pcap_handle);
@@ -71,6 +73,9 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         if(only_display_with_mac && !had_mac){
             return;
         }
+        if(loggedips[index].ipv4_confidence < min_confidence){
+            return;
+        }
         printf("Update ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
         if(had_mac){
             printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
@@ -78,7 +83,7 @@ void updateip(u_int index, u_char *ipbytes, u_char *macbytes, char *hostname, u_
         if(had_hostname){
             printf("hostname %s ", hostname);
         }
-        printf("confidence %d/3 ", confidence);
+        printf("confidence %d/2 ", confidence);
         printf("\n");
     }
 }
@@ -122,6 +127,9 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     if((only_display_with_mac && !had_mac)){
         return;
     }
+    if(loggedips[loggedipsidx].ipv4_confidence < min_confidence){
+        return;
+    }
     printf("Logged ip %d.%d.%d.%d ", ipbytes[0], ipbytes[1], ipbytes[2], ipbytes[3]);
     if(had_mac){
         printf("MAC %02X:%02X:%02X:%02X:%02X:%02X ", macbytes[0], macbytes[1], macbytes[2], macbytes[3], macbytes[4], macbytes[5]);
@@ -129,7 +137,7 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
     if(had_hostname){
         printf("hostname %s ", hostname);        
     }
-    printf("confidence %d/3 ", confidence);
+    printf("confidence %d/2 ", confidence);
     printf("(logged %d)\n", loggedipsidx);
 }
 
@@ -352,6 +360,7 @@ void print_help_list(){
     "-h : Show this help message\n"
     "-m : Only display hosts with known MAC addresses\n"
     "-n : Only display hosts with known hostnames\n"
+    "-c[number] : Only display captures with minimum [number] confidence\n"
     "\n";
     printf("%s", helpmsg);
 }
@@ -373,6 +382,9 @@ int main(int argc, char *argv[])
                 goto end_of_arg;
             case('m'):
                 only_display_with_mac = 1;
+                goto end_of_arg;
+            case('c'):
+                min_confidence = atoi(argv[i]+2);
                 goto end_of_arg;
         }
         end_of_arg:;

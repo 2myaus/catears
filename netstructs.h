@@ -4,9 +4,9 @@
 
 /*
     Confidence values:
-    1 - thru dhcp request
-    2 - Queried by arp
-    3 - Arp query sender / mdns sender / generic ipv4 sender
+    0 - thru dhcp request
+    1 - Queried by arp
+    2 - Arp query sender / mdns sender / generic ipv4 sender
 */
 
 enum confidence_val{
