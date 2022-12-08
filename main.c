@@ -142,12 +142,8 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
 }
 
 void handle_generic_ipv4_packet(u_char *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
+    //struct eth_header *ethhead = (struct eth_header*)packet;
 
     struct ipv4_header *ipv4head = (struct ipv4_header*)(packet+ sizeof(struct eth_header));
 
@@ -155,21 +151,15 @@ void handle_generic_ipv4_packet(u_char *args, const struct pcap_pkthdr *header, 
 }
 
 void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
+    //struct eth_header *ethhead = (struct eth_header*)packet;
+    //u_short packet_type = be16toh(ethhead->ether_type);
 
-    struct ipv4_header *ipv4head = (struct ipv4_header*)(packet + sizeof(struct eth_header));
+    //struct ipv4_header *ipv4head = (struct ipv4_header*)(packet + sizeof(struct eth_header));
 
-    struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
+    //struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
     struct dhcp_header *dhcphead = (struct dhcp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header) + sizeof(struct udp_header));
-
-    //printf("Captured dhcp packet from ");
-    //printf("%02X:%02X:%02X:%02X:%02X:%02X\n", dhcphead->hardware_addr[0], dhcphead->hardware_addr[1], dhcphead->hardware_addr[2], dhcphead->hardware_addr[3], dhcphead->hardware_addr[4], dhcphead->hardware_addr[5]);
 
     u_char *dhcp_options = (u_char*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header) + sizeof(struct udp_header) + sizeof(struct dhcp_header));
 
@@ -201,14 +191,12 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
             return;
         }
         switch(current_option){
-            case 50:
-                //printf("Requested IP: %d.%d.%d.%d\n", *(options_read_idx + 2), *(options_read_idx + 3), *(options_read_idx + 4), *(options_read_idx + 5));
+            case 50: //Mac addr
                 loggable = 1;
                 ipv4_bytes = options_read_idx + 2;
                 mac_bytes = (dhcphead->hardware_addr);
                 break;
-            case 12:{
-                //printf("Host name: ");
+            case 12:{ //Hostname
                 u_char i;
                 for(i = 2; i < current_option_len + 2 && i < MAX_HOSTNAME_LEN - 1; i++){ //Already limited by option len check so won't segfault
                     hostname_bytes_mem[i-2] = *(options_read_idx + i);
@@ -231,12 +219,11 @@ void handle_dhcp_packet(u_char  *args, const struct pcap_pkthdr *header, const u
 
 void handle_mdns_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
+    //struct eth_header *ethhead = (struct eth_header*)packet;
 
     struct ipv4_header *ipv4head = (struct ipv4_header*)(packet + sizeof(struct eth_header));
 
-    struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
+    //struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
     //TODO: Properly parse mdns here
     logip((u_char*)(&(ipv4head->ip_src)), NULL, NULL, 0, cfv_packet_sender);
@@ -249,10 +236,10 @@ void handle_udp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_
         return;
     }
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
+    //struct eth_header *ethhead = (struct eth_header*)packet;
+    //u_short packet_type = be16toh(ethhead->ether_type);
 
-    struct ipv4_header *ipv4head = (struct ipv4_header*)(packet + sizeof(struct eth_header));
+    //struct ipv4_header *ipv4head = (struct ipv4_header*)(packet + sizeof(struct eth_header));
 
     struct udp_header *udphead = (struct udp_header*)(packet + sizeof(struct eth_header) + sizeof(struct ipv4_header));
 
@@ -274,7 +261,7 @@ void handle_ipv4_packet(u_char  *args, const struct pcap_pkthdr *header, const u
         return;
     }
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
+    //struct eth_header *ethhead = (struct eth_header*)packet;
 
     struct ipv4_header *ipv4head = (struct ipv4_header*)(packet+ sizeof(struct eth_header));
 
@@ -295,51 +282,17 @@ void handle_arp_packet(u_char  *args, const struct pcap_pkthdr *header, const u_
         return;
     }
 
-    struct eth_header *ethhead = (struct eth_header*)packet;
-    u_short packet_type = be16toh(ethhead->ether_type);
+    //struct eth_header *ethhead = (struct eth_header*)packet;
+    //u_short packet_type = be16toh(ethhead->ether_type);
     struct arp_header *arphead = (struct arp_header*)(packet + sizeof(struct eth_header));
-    u_char sender_ipv4[4];
 
-    u_short opcode = be16toh(arphead->opcode);
+    //u_short opcode = be16toh(arphead->opcode);
 
-    //printf("ARP Packet @ %s", ctime(&tv->tv_sec));
-
-    /*if(opcode == 1){ //Request
-        printf("%d.%d.%d.%d (",
-        arphead->sender_ipv4[0], arphead->sender_ipv4[1], arphead->sender_ipv4[2], arphead->sender_ipv4[3]);
-
-        printf("%02X:%02X:%02X:%02X:%02X:%02X",
-        arphead->sender_mac[0], arphead->sender_mac[1], arphead->sender_mac[2], arphead->sender_mac[3], arphead->sender_mac[4], arphead->sender_mac[5]);
-
-        printf("): Who is %d.%d.%d.%d?\n",
-        arphead->target_resolv_ipv4[0], arphead->target_resolv_ipv4[1], arphead->target_resolv_ipv4[2], arphead->target_resolv_ipv4[3]);
-    }
-    else if(opcode == 2){ //Reply
-        printf("%d.%d.%d.%d: To ",
-        arphead->sender_ipv4[0], arphead->sender_ipv4[1], arphead->sender_ipv4[2], arphead->sender_ipv4[3]);
-
-        printf("%d.%d.%d.%d (",
-        arphead->target_resolv_ipv4[0], arphead->target_resolv_ipv4[1], arphead->target_resolv_ipv4[2], arphead->target_resolv_ipv4[3]);
-
-        printf("%02X:%02X:%02X:%02X:%02X:%02X): ",
-        arphead->target_resolv_mac[0], arphead->target_resolv_mac[1], arphead->target_resolv_mac[2], arphead->target_resolv_mac[3], arphead->target_resolv_mac[4], arphead->target_resolv_mac[5]);
-
-        printf("I am %02X:%02X:%02X:%02X:%02X:%02X\n",
-        arphead->sender_mac[0], arphead->sender_mac[1], arphead->sender_mac[2], arphead->sender_mac[3], arphead->sender_mac[4], arphead->sender_mac[5]);
-    }*/
     logip((u_char*)&(arphead->target_resolv_ipv4), NULL, NULL, 0, cfv_arp_queried);
     logip((u_char*)&(arphead->sender_ipv4), (u_char*)&(arphead->sender_mac), NULL, 0, cfv_packet_sender);
-
-    /*printf("Query MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-    arphead->target_resolv_mac[0], arphead->target_resolv_mac[1], arphead->target_resolv_mac[2], arphead->target_resolv_mac[3], arphead->target_resolv_mac[4], arphead->target_resolv_mac[5]);*/
-    //printf("\n");
 }
 
 void cap_packet(u_char  *args, const struct pcap_pkthdr *header, const u_char *packet){
-    struct timeval *tv = (struct timeval*)header;
-    bpf_u_int32 *caplen = (bpf_u_int32*)(header+sizeof(struct timeval));
-    bpf_u_int32 *totlen = (bpf_u_int32*)(header+sizeof(struct timeval)+sizeof(bpf_u_int32));
-
     struct eth_header *ethhead = (struct eth_header*)packet;
     u_short packet_type = be16toh(ethhead->ether_type);
     switch (packet_type)
@@ -397,8 +350,6 @@ int main(int argc, char *argv[])
 
     char filter_exp[] = "";
     struct bpf_program fp;
-
-    struct pcap_pkthdr header;
 
     pcap_findalldevs(&devs, errbuf);
     if (devs == NULL) {
