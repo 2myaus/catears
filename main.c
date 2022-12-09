@@ -14,6 +14,10 @@
 u_char only_display_with_mac = 0;
 u_char only_display_with_hostname = 0;
 
+u_char only_display_new_connections = 0;
+
+u_char min_confidence = 0;
+
 char interrupted = 0;
 pcap_t *pcap_handle;
 
@@ -26,8 +30,6 @@ u_char router_mac[6];
 
 struct dev_info loggedips[2048];
 u_int loggedipsidx = 0;
-
-u_char min_confidence = 0;
 
 void interruptHandler(int dummy) {
     interrupted = 1;
@@ -99,6 +101,9 @@ void logip(u_char *ipbytes, u_char *macbytes, char *hostname, u_short hostname_l
         updateip(i, ipbytes, macbytes, hostname, hostname_len, confidence);
         return;
         out:;
+    }
+    if(only_display_new_connections && (confidence != cfv_dhcp_requester)){
+        return;
     }
     u_char n;
     for(n = 0; n < 4; n++){
@@ -314,6 +319,7 @@ void print_help_list(){
     "-m : Only display hosts with known MAC addresses\n"
     "-n : Only display hosts with known hostnames\n"
     "-c[number] : Only display captures with minimum [number] confidence\n"
+    "-d : Only display newly connecting devices"
     "\n";
     printf("%s", helpmsg);
 }
@@ -341,6 +347,9 @@ int main(int argc, char *argv[])
                 if(min_confidence > MAX_CONFIDENCE){
                     printf("Warning: min confidence argument is greater than normal max confidence\n");
                 }
+                goto end_of_arg;
+            case('d'):
+                only_display_new_connections = 1;
                 goto end_of_arg;
         }
         end_of_arg:;
